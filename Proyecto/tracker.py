@@ -1,6 +1,8 @@
 import socket
 import threading
 import time
+import hashlib
+import os
 
 # Configuración del rastreador
 HOST = '0.0.0.0'
@@ -16,19 +18,24 @@ def handle_peer(conn, addr):
         request = data.split()
 
         if request[0] == 'ANNOUNCE':
-            if len(request) != 4:
+            if len(request) != 5:
                 raise ValueError("Formato de mensaje ANNOUNCE incorrecto")
-            
+
             file_name = request[1]
             peer_id = request[2]
             peer_port = int(request[3])
+            file_hash = request[4]
 
             with lock:
                 if file_name not in peers:
                     peers[file_name] = {}
-                peers[file_name][peer_id] = (addr[0], peer_port)
+                peers[file_name][peer_id] = (addr[0], peer_port, file_hash)
 
-                peer_list = [f"{p_id}|{ip}:{port}" for p_id, (ip, port) in peers[file_name].items() if p_id != peer_id]
+                peer_list = [
+                    f"{p_id}|{ip}:{port}|{file_hash}"
+                    for p_id, (ip, port, file_hash) in peers[file_name].items()
+                    if p_id != peer_id  # Comparar con p_id
+                ]
 
                 response = ",".join(peer_list).encode() if peer_list else b"NO_PEERS"
                 conn.sendall(response)
@@ -56,13 +63,13 @@ def show_network_status():
             print("\nEstado de la red:")
             for file_name, peer_list in peers.items():
                 print(f"  Archivo: {file_name}")
-                for peer_id, (ip, port) in peer_list.items():
-                    print(f"    Peer {peer_id}: {ip}:{port}")
+                for peer_id, (ip, port, file_hash) in peer_list.items():  # Desempaquetar los 3 elementos
+                    print(f"    Peer {peer_id}: {ip}:{port} (Hash: {file_hash})")  # Mostrar el hash
         user_input = input("Presione Enter para actualizar (o escriba 'exit' para detener el tracker): ")
         if user_input.lower() == "exit":
             with lock:
                 running = False
-                break  
+                break
 
 if __name__ == '__main__':
     status_thread = threading.Thread(target=show_network_status, daemon=True)

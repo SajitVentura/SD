@@ -3,6 +3,7 @@ import threading
 import os
 import json
 import time
+import hashlib
 
 class Peer:
     def __init__(self, peer_id, tracker_host, tracker_port, files_dir, peer_port):
@@ -40,7 +41,9 @@ class Peer:
 
     def announce_files(self):
         for file in self.files:
-            self.send_to_tracker(f"ANNOUNCE {file} {self.peer_id} {self.peer_port}")
+            file_path = os.path.join(self.files_dir, file)
+            file_hash = hashlib.sha256(open(file_path, 'rb').read()).hexdigest()
+            self.send_to_tracker(f"ANNOUNCE {file} {self.peer_id} {self.peer_port} {file_hash}")  # Enviar el hash
 
     def send_to_tracker(self, message):
         max_retries = 3
@@ -97,7 +100,7 @@ class Peer:
         finally:
             conn.close()
 
-    def download_file(self, file_name, peer_id, peer_address):
+    def download_file(self, file_name, peer_id, peer_address, file_hash):
         os.makedirs(self.files_dir, exist_ok=True)
         file_path = os.path.join(self.files_dir, file_name)
         checkpoint_path = os.path.join(self.checkpoint_dir, f"{file_name}.checkpoint")
@@ -123,6 +126,11 @@ class Peer:
                         chunk = s.recv(self.BUFFER_SIZE)
                         if not chunk or chunk == b"FILE_NOT_FOUND":
                             break
+                        chunk_hash = hashlib.sha256(chunk).hexdigest()
+                        if chunk_hash != file_hash:
+                            print(f"Error de integridad en la parte {piece_index}. Reintentando descarga.")
+                            continue  # Reintentar la descarga de la parte
+
                         f.write(chunk)
                         received_bytes += len(chunk)
                         piece_index += 1
@@ -155,8 +163,16 @@ class Peer:
     def get_peers_from_tracker(self, file_name):
         response = self.send_to_tracker(f"ANNOUNCE {file_name} {self.peer_id} {self.peer_port}")
         if response and response != "NO_PEERS":
-            return [tuple(peer_info.split('|')) for peer_info in response.split(',') if peer_info]
+            return [
+                (
+                    peer_info.split("|")[0],  # peer_id
+                    (peer_info.split("|")[1], int(peer_info.split("|")[2])),  # (ip, port)
+                    peer_info.split("|")[3]   # file_hash
+                )
+                for peer_info in response.split(",") if peer_info
+            ]
         return []
+
 
     def show_available_files(self):
         response = self.send_to_tracker("LIST_FILES")
