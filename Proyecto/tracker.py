@@ -1,42 +1,36 @@
 import socket
 import threading
-import time
-import hashlib
 import os
+import time
 
 # Configuración del rastreador
-HOST = '0.0.0.0'
-PORT = 12345
-BUFFER_SIZE = 16777216  # 16 MB
+HOST = '25.5.178.244'
+PORT = 5000
+BUFFER_SIZE = 16777216
 peers = {}
 lock = threading.Lock()
 running = True
 
+# Función para manejar las solicitudes de los peers
 def handle_peer(conn, addr):
     try:
         data = conn.recv(BUFFER_SIZE).decode()
         request = data.split()
 
         if request[0] == 'ANNOUNCE':
-            if len(request) != 5:
+            if len(request) != 4:
                 raise ValueError("Formato de mensaje ANNOUNCE incorrecto")
-
+            
             file_name = request[1]
             peer_id = request[2]
             peer_port = int(request[3])
-            file_hash = request[4]
 
             with lock:
                 if file_name not in peers:
                     peers[file_name] = {}
-                peers[file_name][peer_id] = (addr[0], peer_port, file_hash)
+                peers[file_name][peer_id] = (addr[0], peer_port)
 
-                peer_list = [
-                    f"{p_id}|{ip}:{port}|{file_hash}"
-                    for p_id, (ip, port, file_hash) in peers[file_name].items()
-                    if p_id != peer_id  # Comparar con p_id
-                ]
-
+                peer_list = [f"{p_id}|{ip}:{port}" for p_id, (ip, port) in peers[file_name].items() if p_id != peer_id]
                 response = ",".join(peer_list).encode() if peer_list else b"NO_PEERS"
                 conn.sendall(response)
 
@@ -56,6 +50,7 @@ def handle_peer(conn, addr):
         conn.sendall(b"OK")
         conn.close()
 
+# Función para mostrar el estado de la red
 def show_network_status():
     global running
     while running:
@@ -63,14 +58,16 @@ def show_network_status():
             print("\nEstado de la red:")
             for file_name, peer_list in peers.items():
                 print(f"  Archivo: {file_name}")
-                for peer_id, (ip, port, file_hash) in peer_list.items():  # Desempaquetar los 3 elementos
-                    print(f"    Peer {peer_id}: {ip}:{port} (Hash: {file_hash})")  # Mostrar el hash
-        user_input = input("Presione Enter para actualizar (o escriba 'exit' para detener el tracker): ")
-        if user_input.lower() == "exit":
+                for peer_id, (ip, port) in peer_list.items():
+                    print(f"    Peer {peer_id}: {ip}:{port}")
+        print("\nSi desea salir, presione 'q'")
+        time.sleep(5)
+        if input().lower() == 'q':
             with lock:
                 running = False
                 break
 
+# Main loop
 if __name__ == '__main__':
     status_thread = threading.Thread(target=show_network_status, daemon=True)
     status_thread.start()
